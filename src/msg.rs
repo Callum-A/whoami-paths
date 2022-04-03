@@ -28,7 +28,15 @@ pub enum ReceiveMsg {
 pub enum ExecuteMsg {
     Receive(Cw20ReceiveMsg),
     ReceiveNft(Cw721ReceiveMsg),
-    MintPath { path: String }, // Equivalent to receive but with no cost
+    MintPath {
+        path: String,
+    }, // Equivalent to receive but with no cost
+    UpdateAdmin {
+        new_admin: String,
+    },
+    UpdateTokenDetails {
+        new_token_details: Option<TokenDetails>,
+    }, // Set to null to clear
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -38,7 +46,8 @@ pub enum QueryMsg {
     TokenDetails {},
 }
 
-// We define a custom struct for each query response
-// #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-// pub struct CountResponse {
-// }
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct TokenDetailsResponse {
+    pub token_details: Option<TokenDetails>,
+}

@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, ReceiveMsg, TokenDetails};
+    use crate::msg::{
+        ExecuteMsg, InstantiateMsg, QueryMsg, ReceiveMsg, TokenDetails, TokenDetailsResponse,
+    };
     use crate::state::Config;
     use cosmwasm_std::{coins, to_binary, Addr, Coin, Empty, Uint128};
     use cw20::Cw20Coin;
@@ -334,5 +336,80 @@ mod tests {
 
         // Expect error you need to pay
         mint_path_no_tokens(&mut app, paths, "c", USER).unwrap_err();
+    }
+
+    #[test]
+    fn test_update_admin() {
+        let mut app = mock_app();
+        let (_cw20, _whoami, paths) = setup_test_case(&mut app, true);
+
+        // Set admin to USER
+        let msg = ExecuteMsg::UpdateAdmin {
+            new_admin: USER.to_string(),
+        };
+
+        // Fails as USER is not the admin
+        app.execute_contract(Addr::unchecked(USER), paths.clone(), &msg, &[])
+            .unwrap_err();
+
+        // Success
+        app.execute_contract(Addr::unchecked(ADMIN), paths.clone(), &msg, &[])
+            .unwrap();
+
+        let msg = QueryMsg::Config {};
+        let config: Config = app.wrap().query_wasm_smart(paths, &msg).unwrap();
+        assert_eq!(config.admin, Addr::unchecked(USER));
+    }
+
+    #[test]
+    fn test_update_token_details() {
+        let mut app = mock_app();
+        let (cw20, _whoami, paths) = setup_test_case(&mut app, false);
+
+        // No token
+        let msg = QueryMsg::TokenDetails {};
+        let config: TokenDetailsResponse =
+            app.wrap().query_wasm_smart(paths.clone(), &msg).unwrap();
+        assert_eq!(config.token_details, None);
+
+        let msg = ExecuteMsg::UpdateTokenDetails {
+            new_token_details: Some(TokenDetails {
+                token_address: cw20.to_string(),
+                token_cost: Uint128::new(50),
+            }),
+        };
+
+        // Fails as USER is not the admin
+        app.execute_contract(Addr::unchecked(USER), paths.clone(), &msg, &[])
+            .unwrap_err();
+
+        // Success
+        app.execute_contract(Addr::unchecked(ADMIN), paths.clone(), &msg, &[])
+            .unwrap();
+
+        // Now there is a token
+        let msg = QueryMsg::TokenDetails {};
+        let config: TokenDetailsResponse =
+            app.wrap().query_wasm_smart(paths.clone(), &msg).unwrap();
+        assert_eq!(
+            config.token_details,
+            Some(TokenDetails {
+                token_address: cw20.to_string(),
+                token_cost: Uint128::new(50)
+            })
+        );
+
+        // Remove the token
+        let msg = ExecuteMsg::UpdateTokenDetails {
+            new_token_details: None,
+        };
+
+        app.execute_contract(Addr::unchecked(ADMIN), paths.clone(), &msg, &[])
+            .unwrap();
+
+        // No token again
+        let msg = QueryMsg::TokenDetails {};
+        let config: TokenDetailsResponse = app.wrap().query_wasm_smart(paths, &msg).unwrap();
+        assert_eq!(config.token_details, None);
     }
 }

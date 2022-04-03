@@ -45,6 +45,50 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "update_admin"
+      ],
+      "properties": {
+        "update_admin": {
+          "type": "object",
+          "required": [
+            "new_admin"
+          ],
+          "properties": {
+            "new_admin": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "update_token_details"
+      ],
+      "properties": {
+        "update_token_details": {
+          "type": "object",
+          "properties": {
+            "new_token_details": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/TokenDetails"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     }
   ],
   "definitions": {
@@ -89,6 +133,21 @@
         },
         "token_id": {
           "type": "string"
+        }
+      }
+    },
+    "TokenDetails": {
+      "type": "object",
+      "required": [
+        "token_address",
+        "token_cost"
+      ],
+      "properties": {
+        "token_address": {
+          "type": "string"
+        },
+        "token_cost": {
+          "$ref": "#/definitions/Uint128"
         }
       }
     },

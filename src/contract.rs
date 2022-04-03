@@ -8,7 +8,9 @@ use cw20::Cw20ReceiveMsg;
 use cw721::Cw721ReceiveMsg;
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, ReceiveMsg};
+use crate::msg::{
+    ExecuteMsg, InstantiateMsg, QueryMsg, ReceiveMsg, TokenDetails, TokenDetailsResponse,
+};
 use crate::state::{Config, CONFIG, TOKEN_DETAILS};
 
 // version info for migration info
@@ -59,6 +61,10 @@ pub fn execute(
             execute_receive_cw721(deps, env, info, cw721_receive)
         }
         ExecuteMsg::MintPath { path } => execute_mint_path(deps, env, info, path),
+        ExecuteMsg::UpdateAdmin { new_admin } => execute_update_admin(deps, env, info, new_admin),
+        ExecuteMsg::UpdateTokenDetails { new_token_details } => {
+            execute_update_token_details(deps, env, info, new_token_details)
+        }
     }
 }
 
@@ -214,10 +220,61 @@ pub fn execute_mint_path(
     Ok(Response::new().add_messages(wasm_msg))
 }
 
+pub fn execute_update_admin(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    new_admin: String,
+) -> Result<Response, ContractError> {
+    let mut config = CONFIG.load(deps.storage)?;
+    if info.sender != config.admin {
+        // Only existing admin can set
+        return Err(ContractError::Unauthorized {});
+    }
+    let old_admin = config.admin.clone();
+    let validated_new_admin = deps.api.addr_validate(&new_admin)?;
+
+    config.admin = validated_new_admin.clone();
+
+    CONFIG.save(deps.storage, &config)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "update_admin")
+        .add_attribute("old_admin", old_admin.to_string())
+        .add_attribute("new_admin", validated_new_admin.to_string()))
+}
+
+pub fn execute_update_token_details(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    new_token_details: Option<TokenDetails>,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    if info.sender != config.admin {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    if let Some(token_details) = new_token_details {
+        // Validate token address
+        deps.api.addr_validate(&token_details.token_address)?;
+        TOKEN_DETAILS.save(deps.storage, &token_details)?;
+        Ok(Response::new()
+            .add_attribute("action", "update_token_details")
+            .add_attribute("token_address", token_details.token_address)
+            .add_attribute("token_cost", token_details.token_cost))
+    } else {
+        TOKEN_DETAILS.remove(deps.storage);
+        Ok(Response::new().add_attribute("action", "update_token_details"))
+    }
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::TokenDetails {} => to_binary(&TOKEN_DETAILS.load(deps.storage)?),
+        QueryMsg::TokenDetails {} => to_binary(&TokenDetailsResponse {
+            token_details: TOKEN_DETAILS.may_load(deps.storage)?,
+        }),
     }
 }

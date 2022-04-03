@@ -51,7 +51,7 @@ cw721-base = { version = "0.13", features = ["library"] }
 schemars = "0.8"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.30" }
-whoami = { git = 'https://github.com/envoylabs/whoami', branch = "main", features = ["library"] }
+whoami = { git = 'https://github.com/envoylabs/whoami', branch = "main" }
 
 [dev-dependencies]
 anyhow = "1.0.56"
