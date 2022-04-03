@@ -75,11 +75,11 @@ pub fn mint_path_msg(
     token_id: String,
     path: String,
 ) -> StdResult<Vec<WasmMsg>> {
-    let whoami_msg = whoami::ExecuteMsg::MintPath(whoami::msg::MintMsg {
+    let whoami_msg = whoami::msg::ExecuteMsg::MintPath(whoami::msg::MintMsg {
         token_id: path.clone(),
         owner: contract,
         token_uri: None,
-        extension: whoami::Extension {
+        extension: whoami::msg::Extension {
             image: None,
             image_data: None,
             email: None,
@@ -102,7 +102,7 @@ pub fn mint_path_msg(
         funds: vec![],
     };
 
-    let transfer_msg = whoami::ExecuteMsg::TransferNft {
+    let transfer_msg = whoami::msg::ExecuteMsg::TransferNft {
         recipient: owner,
         token_id: format!("{}::{}", token_id, path),
     };

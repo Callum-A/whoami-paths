@@ -161,7 +161,7 @@ mod tests {
         sender: &str,
         name: &str,
     ) -> anyhow::Result<AppResponse> {
-        let msg = whoami::ExecuteMsg::Mint(whoami::msg::MintMsg {
+        let msg = whoami::msg::ExecuteMsg::Mint(whoami::msg::MintMsg {
             token_id: name.to_string(),
             owner: sender.to_string(),
             token_uri: None,
@@ -197,7 +197,7 @@ mod tests {
         to: String,
         token_id: String,
     ) -> anyhow::Result<AppResponse> {
-        let msg = whoami::ExecuteMsg::SendNft {
+        let msg = whoami::msg::ExecuteMsg::SendNft {
             contract: to,
             token_id,
             msg: Default::default(),
