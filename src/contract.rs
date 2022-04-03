@@ -42,7 +42,7 @@ pub fn instantiate(
     }
 
     Ok(Response::new()
-        .add_attribute("method", "instantiate")
+        .add_attribute("action", "instantiate")
         .add_attribute("admin", admin.to_string()))
 }
 
