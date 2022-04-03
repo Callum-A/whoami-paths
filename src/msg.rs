@@ -37,6 +37,7 @@ pub enum ExecuteMsg {
     UpdateTokenDetails {
         new_token_details: Option<TokenDetails>,
     }, // Set to null to clear
+    WithdrawRootToken {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

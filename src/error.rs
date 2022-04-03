@@ -9,8 +9,18 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
-    #[error("Custom Error val: {val:?}")]
-    CustomError { val: String },
-    // Add any other custom errors you like here.
-    // Look at https://docs.rs/thiserror/1.0.21/thiserror/ for details.
+    #[error("Insufficient funds sent to mint a path")]
+    InsufficientFunds {},
+
+    #[error("Token received is not the token configured for this contract")]
+    UnrecognisedToken {},
+
+    #[error("The root token has not been received yet")]
+    NoRootToken {},
+
+    #[error("The root token has already been set")]
+    ExistingRootToken {},
+
+    #[error("No CW20 payment needed to mint a path")]
+    NoPaymentNeeded {},
 }

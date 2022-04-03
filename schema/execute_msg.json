@@ -89,6 +89,18 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "withdraw_root_token"
+      ],
+      "properties": {
+        "withdraw_root_token": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
     }
   ],
   "definitions": {

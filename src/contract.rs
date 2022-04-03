@@ -65,6 +65,7 @@ pub fn execute(
         ExecuteMsg::UpdateTokenDetails { new_token_details } => {
             execute_update_token_details(deps, env, info, new_token_details)
         }
+        ExecuteMsg::WithdrawRootToken {} => execute_withdraw_root_token(deps, env, info),
     }
 }
 
@@ -125,24 +126,24 @@ pub fn execute_receive_cw20(
     let config = CONFIG.load(deps.storage)?;
     if token_details.is_none() {
         // We do not need to pay a CW20 to mint
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::NoPaymentNeeded {});
     }
     let token_details = token_details.unwrap();
 
     if info.sender != token_details.token_address {
         // Unrecognised token
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::UnrecognisedToken {});
     }
 
     if config.token_id.is_none() {
         // Token has not been received so cannot mint paths
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::NoRootToken {});
     }
 
     let token_id = config.token_id.unwrap();
     if cw20_receive.amount < token_details.token_cost {
         // Not enough sent
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::InsufficientFunds {});
     }
 
     let msg: ReceiveMsg = from_binary(&cw20_receive.msg)?;
@@ -174,7 +175,7 @@ pub fn execute_receive_cw721(
 
     if config.token_id.is_some() {
         // We already have a token
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::ExistingRootToken {});
     }
 
     if cw721_receive.sender != config.admin {
@@ -200,13 +201,13 @@ pub fn execute_mint_path(
 
     if config.token_id.is_none() {
         // No token to mint off of
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::NoRootToken {});
     }
     let token_id = config.token_id.unwrap();
 
     if token_details.is_some() {
         // Have to pay a token
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::InsufficientFunds {});
     }
 
     let wasm_msg = mint_path_msg(
@@ -267,6 +268,42 @@ pub fn execute_update_token_details(
         TOKEN_DETAILS.remove(deps.storage);
         Ok(Response::new().add_attribute("action", "update_token_details"))
     }
+}
+
+pub fn execute_withdraw_root_token(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let mut config = CONFIG.load(deps.storage)?;
+    let admin = config.admin.clone();
+    let whoami_address = config.whoami_address.clone();
+
+    if info.sender != admin {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    if config.token_id.is_none() {
+        return Err(ContractError::NoRootToken {});
+    }
+    let token_id = config.token_id.unwrap();
+
+    let transfer_msg = whoami::msg::ExecuteMsg::TransferNft {
+        recipient: admin.to_string(),
+        token_id,
+    };
+    let wasm_msg = WasmMsg::Execute {
+        contract_addr: whoami_address,
+        msg: to_binary(&transfer_msg)?,
+        funds: vec![],
+    };
+
+    config.token_id = None;
+    CONFIG.save(deps.storage, &config)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "withdraw_root_token")
+        .add_message(wasm_msg))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

@@ -6,6 +6,7 @@ mod tests {
     use crate::state::Config;
     use cosmwasm_std::{coins, to_binary, Addr, Coin, Empty, Uint128};
     use cw20::Cw20Coin;
+    use cw721::OwnerOfResponse;
     use cw_multi_test::{
         next_block, App, AppBuilder, AppResponse, Contract, ContractWrapper, Executor,
     };
@@ -411,5 +412,47 @@ mod tests {
         let msg = QueryMsg::TokenDetails {};
         let config: TokenDetailsResponse = app.wrap().query_wasm_smart(paths, &msg).unwrap();
         assert_eq!(config.token_details, None);
+    }
+
+    #[test]
+    fn test_withdraw_root_token() {
+        // Setup
+        let mut app = mock_app();
+        let (_cw20, whoami, paths) = setup_test_case(&mut app, false);
+        let name = "howl_base";
+        mint_name(&mut app, whoami.clone(), ADMIN, name).unwrap();
+        // Expect error no token to withdraw
+        let msg = ExecuteMsg::WithdrawRootToken {};
+        app.execute_contract(Addr::unchecked(ADMIN), paths.clone(), &msg, &[])
+            .unwrap_err();
+
+        // Give the contract the name
+        transfer_name(
+            &mut app,
+            whoami.clone(),
+            ADMIN,
+            paths.to_string(),
+            name.to_string(),
+        )
+        .unwrap();
+
+        // Expect error withdrawer is not the admin
+        app.execute_contract(Addr::unchecked(USER), paths.clone(), &msg, &[])
+            .unwrap_err();
+
+        // Success
+        app.execute_contract(Addr::unchecked(ADMIN), paths.clone(), &msg, &[])
+            .unwrap();
+
+        let msg = QueryMsg::Config {};
+        let config: Config = app.wrap().query_wasm_smart(paths, &msg).unwrap();
+        assert_eq!(config.token_id, None);
+
+        let msg = whoami::msg::QueryMsg::OwnerOf {
+            token_id: name.to_string(),
+            include_expired: None,
+        };
+        let resp: OwnerOfResponse = app.wrap().query_wasm_smart(whoami, &msg).unwrap();
+        assert_eq!(resp.owner, ADMIN.to_string());
     }
 }
