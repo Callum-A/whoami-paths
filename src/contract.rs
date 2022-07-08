@@ -7,7 +7,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw20::{Cw20ReceiveMsg, TokenInfoResponse};
 use cw721::Cw721ReceiveMsg;
-use cw_utils::must_pay;
+use cw_utils::{must_pay, nonpayable};
 
 use crate::error::ContractError;
 use crate::msg::{
@@ -84,7 +84,7 @@ fn mint(
     amount_required: Uint128,
 ) -> Result<Response, ContractError> {
     if amount_paid != amount_required {
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::InsufficientFunds {});
     }
 
     let wasm_msg = mint_path_msg(
@@ -173,7 +173,7 @@ pub fn execute_receive_cw20(
     let config = CONFIG.load(deps.storage)?;
 
     if payment_details.is_none() {
-        // We do not need to pay a CW20 to mint
+        // We do not need to pay a CW20 to mint, use base execute route
         return Err(ContractError::NoPaymentNeeded {});
     }
 
@@ -277,6 +277,7 @@ pub fn execute_mint_path(
             PaymentDetails::Cw20 { .. } => Err(ContractError::Unauthorized {}),
         }
     } else {
+        nonpayable(&info)?;
         mint(
             env,
             config.whoami_address,

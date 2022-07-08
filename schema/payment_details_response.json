@@ -1,15 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "InstantiateMsg",
+  "title": "PaymentDetailsResponse",
   "type": "object",
-  "required": [
-    "admin",
-    "whoami_address"
-  ],
   "properties": {
-    "admin": {
-      "type": "string"
-    },
     "payment_details": {
       "anyOf": [
         {
@@ -19,9 +12,6 @@
           "type": "null"
         }
       ]
-    },
-    "whoami_address": {
-      "type": "string"
     }
   },
   "definitions": {

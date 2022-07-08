@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::msg::{ExecuteMsg, InstantiateMsg, PaymentDetails, QueryMsg};
+    use crate::msg::{ExecuteMsg, InstantiateMsg, PaymentDetails, QueryMsg, ReceiveMsg};
     use crate::state::Config;
-    use cosmwasm_std::{coins, Addr, Coin, Empty, Uint128};
-    use cw20::Cw20Coin;
+    use cosmwasm_std::{coins, to_binary, Addr, Coin, Empty, Uint128};
+    use cw20::{Cw20Coin, Cw20ExecuteMsg};
     use cw721::{Cw721QueryMsg, OwnerOfResponse};
     use cw_multi_test::{
         next_block, App, AppBuilder, AppResponse, Contract, ContractWrapper, Executor,
@@ -13,6 +13,7 @@ mod tests {
     const USER: &str = "addr1";
     const ADMIN: &str = "addr2";
     const NATIVE_DENOM: &str = "ujunox";
+    const INVALID_DENOM: &str = "uinvalid";
 
     pub fn contract_whoami_paths() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
@@ -48,10 +49,16 @@ mod tests {
                 .init_balance(
                     storage,
                     &Addr::unchecked(USER),
-                    vec![Coin {
-                        denom: NATIVE_DENOM.to_string(),
-                        amount: Uint128::new(1000000000),
-                    }],
+                    vec![
+                        Coin {
+                            denom: NATIVE_DENOM.to_string(),
+                            amount: Uint128::new(1000000000),
+                        },
+                        Coin {
+                            denom: INVALID_DENOM.to_string(),
+                            amount: Uint128::new(1000000000),
+                        },
+                    ],
                 )
                 .unwrap();
             router
@@ -59,10 +66,16 @@ mod tests {
                 .init_balance(
                     storage,
                     &Addr::unchecked(ADMIN),
-                    vec![Coin {
-                        denom: NATIVE_DENOM.to_string(),
-                        amount: Uint128::new(1000000000),
-                    }],
+                    vec![
+                        Coin {
+                            denom: NATIVE_DENOM.to_string(),
+                            amount: Uint128::new(1000000000),
+                        },
+                        Coin {
+                            denom: INVALID_DENOM.to_string(),
+                            amount: Uint128::new(1000000000),
+                        },
+                    ],
                 )
                 .unwrap();
         })
@@ -142,6 +155,28 @@ mod tests {
         (whoami_addr, paths_addr)
     }
 
+    fn setup_test_case_with_name(
+        app: &mut App,
+        payment_details: Option<PaymentDetails>,
+    ) -> (Addr, Addr, String) {
+        let (whoami, paths) = setup_test_case(app, payment_details);
+
+        // Mint the name
+        let token_id = "root_name".to_string();
+        mint_name(app, whoami.clone(), ADMIN, &token_id).unwrap();
+
+        // Transfer to the contract
+        transfer_name(
+            app,
+            whoami.clone(),
+            ADMIN,
+            paths.to_string(),
+            token_id.clone(),
+        )
+        .unwrap();
+        (whoami, paths, token_id)
+    }
+
     fn mint_name(
         app: &mut App,
         whoami_addr: Addr,
@@ -190,6 +225,41 @@ mod tests {
             msg: Default::default(),
         };
         app.execute_contract(Addr::unchecked(sender), whoami_addr, &msg, &[])
+    }
+
+    fn mint_path_native(
+        app: &mut App,
+        paths_addr: Addr,
+        sender: &str,
+        path: &str,
+        payment: Vec<Coin>,
+    ) -> anyhow::Result<AppResponse> {
+        app.execute_contract(
+            Addr::unchecked(sender),
+            paths_addr,
+            &ExecuteMsg::MintPath {
+                path: path.to_string(),
+            },
+            &payment,
+        )
+    }
+
+    fn mint_path_cw20(
+        app: &mut App,
+        cw20_addr: Addr,
+        paths_addr: Addr,
+        sender: &str,
+        amount: Uint128,
+        path: &str,
+    ) -> anyhow::Result<AppResponse> {
+        let msg = Cw20ExecuteMsg::Send {
+            contract: paths_addr.to_string(),
+            amount,
+            msg: to_binary(&ReceiveMsg::MintPath {
+                path: path.to_string(),
+            })?,
+        };
+        app.execute_contract(Addr::unchecked(sender), cw20_addr, &msg, &[])
     }
 
     fn update_admin(
@@ -503,5 +573,160 @@ mod tests {
         assert_eq!(config.token_id, Some(token_id.clone()));
 
         withdraw_token(&mut app, paths, USER).unwrap();
+    }
+
+    mod native_payment {
+        use crate::integration_tests::tests::{
+            get_nft_owner, instantiate_cw20, mint_path_cw20, mint_path_native, mock_app,
+            setup_test_case, setup_test_case_with_name, INVALID_DENOM, NATIVE_DENOM, USER,
+        };
+        use crate::msg::PaymentDetails;
+        use cosmwasm_std::{coins, Uint128};
+
+        #[test]
+        fn test_mint_path() {
+            let mut app = mock_app();
+            let (whoami, paths, token_id) = setup_test_case_with_name(
+                &mut app,
+                Some(PaymentDetails::Native {
+                    denom: NATIVE_DENOM.to_string(),
+                    amount: Uint128::new(100),
+                }),
+            );
+
+            let path = "a".to_string();
+            mint_path_native(&mut app, paths, USER, &path, coins(100, NATIVE_DENOM)).unwrap();
+
+            let resp = get_nft_owner(&mut app, whoami, format!("{}::{}", token_id, path));
+            assert_eq!(resp.owner, USER.to_string());
+        }
+
+        #[test]
+        #[should_panic(expected = "Must send reserve token 'ujunox'")]
+        fn test_mint_path_invalid_denom() {
+            let mut app = mock_app();
+            let (_whoami, paths, _token_id) = setup_test_case_with_name(
+                &mut app,
+                Some(PaymentDetails::Native {
+                    denom: NATIVE_DENOM.to_string(),
+                    amount: Uint128::new(100),
+                }),
+            );
+
+            let path = "a".to_string();
+            mint_path_native(&mut app, paths, USER, &path, coins(100, INVALID_DENOM)).unwrap();
+        }
+
+        #[test]
+        #[should_panic(expected = "Insufficient funds sent to mint a path")]
+        fn test_mint_path_pay_too_much() {
+            let mut app = mock_app();
+            let (_whoami, paths, _token_id) = setup_test_case_with_name(
+                &mut app,
+                Some(PaymentDetails::Native {
+                    denom: NATIVE_DENOM.to_string(),
+                    amount: Uint128::new(100),
+                }),
+            );
+
+            let path = "a".to_string();
+            mint_path_native(&mut app, paths, USER, &path, coins(101, NATIVE_DENOM)).unwrap();
+        }
+
+        #[test]
+        #[should_panic(expected = "Insufficient funds sent to mint a path")]
+        fn test_mint_path_pay_too_little() {
+            let mut app = mock_app();
+            let (_whoami, paths, _token_id) = setup_test_case_with_name(
+                &mut app,
+                Some(PaymentDetails::Native {
+                    denom: NATIVE_DENOM.to_string(),
+                    amount: Uint128::new(100),
+                }),
+            );
+
+            let path = "a".to_string();
+            mint_path_native(&mut app, paths, USER, &path, coins(99, NATIVE_DENOM)).unwrap();
+        }
+
+        #[test]
+        #[should_panic(expected = "Unauthorized")]
+        fn test_mint_path_pay_cw20() {
+            let mut app = mock_app();
+            let cw20_addr = instantiate_cw20(&mut app);
+            let (_whoami, paths, _token_id) = setup_test_case_with_name(
+                &mut app,
+                Some(PaymentDetails::Native {
+                    denom: NATIVE_DENOM.to_string(),
+                    amount: Uint128::new(100),
+                }),
+            );
+
+            let path = "a".to_string();
+            mint_path_cw20(&mut app, cw20_addr, paths, USER, Uint128::new(100), &path).unwrap();
+        }
+
+        #[test]
+        #[should_panic(expected = "The root token has not been received yet")]
+        fn test_mint_path_no_root_name() {
+            let mut app = mock_app();
+            let (_whoami, paths) = setup_test_case(&mut app, None);
+
+            let path = "a".to_string();
+            mint_path_native(&mut app, paths, USER, &path, coins(100, NATIVE_DENOM)).unwrap();
+        }
+    }
+
+    mod cw20_payment {}
+
+    mod no_payment {
+        use crate::integration_tests::tests::{
+            get_nft_owner, instantiate_cw20, mint_path_cw20, mint_path_native, mock_app,
+            setup_test_case, setup_test_case_with_name, NATIVE_DENOM, USER,
+        };
+        use cosmwasm_std::{coins, Uint128};
+
+        #[test]
+        fn test_mint_path() {
+            let mut app = mock_app();
+            let (whoami, paths, token_id) = setup_test_case_with_name(&mut app, None);
+
+            let path = "a".to_string();
+            mint_path_native(&mut app, paths, USER, &path, vec![]).unwrap();
+
+            let resp = get_nft_owner(&mut app, whoami, format!("{}::{}", token_id, path));
+            assert_eq!(resp.owner, USER.to_string());
+        }
+
+        #[test]
+        #[should_panic(expected = "This message does no accept funds")]
+        fn test_mint_path_pay_native() {
+            let mut app = mock_app();
+            let (_whoami, paths, _token_id) = setup_test_case_with_name(&mut app, None);
+
+            let path = "a".to_string();
+            mint_path_native(&mut app, paths, USER, &path, coins(1000, NATIVE_DENOM)).unwrap();
+        }
+
+        #[test]
+        #[should_panic(expected = "No payment is needed to mint a path")]
+        fn test_mint_path_pay_cw20() {
+            let mut app = mock_app();
+            let cw20_addr = instantiate_cw20(&mut app);
+            let (_whoami, paths, _token_id) = setup_test_case_with_name(&mut app, None);
+
+            let path = "a".to_string();
+            mint_path_cw20(&mut app, cw20_addr, paths, USER, Uint128::new(100), &path).unwrap();
+        }
+
+        #[test]
+        #[should_panic(expected = "The root token has not been received yet")]
+        fn test_mint_path_no_root_name() {
+            let mut app = mock_app();
+            let (_whoami, paths) = setup_test_case(&mut app, None);
+
+            let path = "a".to_string();
+            mint_path_native(&mut app, paths, USER, &path, vec![]).unwrap();
+        }
     }
 }

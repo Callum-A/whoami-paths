@@ -17,10 +17,10 @@
     {
       "type": "object",
       "required": [
-        "token_details"
+        "payment_details"
       ],
       "properties": {
-        "token_details": {
+        "payment_details": {
           "type": "object"
         }
       },
