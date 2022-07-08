@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::msg::{ExecuteMsg, InstantiateMsg, PaymentDetails, QueryMsg, ReceiveMsg};
+    use crate::msg::{
+        ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsBalanceResponse, QueryMsg,
+        ReceiveMsg,
+    };
     use crate::state::Config;
     use cosmwasm_std::{coins, to_binary, Addr, Coin, Empty, Uint128};
     use cw20::{BalanceResponse, Cw20Coin, Cw20ExecuteMsg, Cw20QueryMsg};
@@ -289,6 +292,15 @@ mod tests {
     fn get_config(app: &mut App, paths_addr: Addr) -> Config {
         app.wrap()
             .query_wasm_smart(paths_addr, &QueryMsg::Config {})
+            .unwrap()
+    }
+
+    fn get_payment_details_balance(
+        app: &mut App,
+        paths_addr: Addr,
+    ) -> PaymentDetailsBalanceResponse {
+        app.wrap()
+            .query_wasm_smart(paths_addr, &QueryMsg::PaymentDetailsBalance {})
             .unwrap()
     }
 
@@ -593,9 +605,9 @@ mod tests {
 
     mod native_payment {
         use crate::integration_tests::tests::{
-            get_nft_owner, instantiate_cw20, mint_path_cw20, mint_path_native, mock_app,
-            setup_test_case, setup_test_case_with_name, withdraw_payments, ADMIN, INVALID_DENOM,
-            NATIVE_DENOM, USER,
+            get_nft_owner, get_payment_details_balance, instantiate_cw20, mint_path_cw20,
+            mint_path_native, mock_app, setup_test_case, setup_test_case_with_name,
+            withdraw_payments, ADMIN, INVALID_DENOM, NATIVE_DENOM, USER,
         };
         use crate::msg::PaymentDetails;
         use cosmwasm_std::{coins, Addr, Uint128};
@@ -717,6 +729,9 @@ mod tests {
             let resp = get_nft_owner(&mut app, whoami, format!("{}::{}", token_id, path));
             assert_eq!(resp.owner, USER.to_string());
 
+            let resp = get_payment_details_balance(&mut app, paths.clone());
+            assert_eq!(resp.amount, Uint128::new(100));
+
             let admin_balance_before = app
                 .wrap()
                 .query_balance(Addr::unchecked(ADMIN), NATIVE_DENOM.to_string())
@@ -768,9 +783,9 @@ mod tests {
 
     mod cw20_payment {
         use crate::integration_tests::tests::{
-            get_cw20_balance, get_nft_owner, instantiate_cw20, mint_path_cw20, mint_path_native,
-            mock_app, setup_test_case, setup_test_case_with_name, withdraw_payments, ADMIN,
-            NATIVE_DENOM, USER,
+            get_cw20_balance, get_nft_owner, get_payment_details_balance, instantiate_cw20,
+            mint_path_cw20, mint_path_native, mock_app, setup_test_case, setup_test_case_with_name,
+            withdraw_payments, ADMIN, NATIVE_DENOM, USER,
         };
         use crate::msg::PaymentDetails;
         use cosmwasm_std::{coins, Uint128};
@@ -914,6 +929,9 @@ mod tests {
             let resp = get_nft_owner(&mut app, whoami, format!("{}::{}", token_id, path));
             assert_eq!(resp.owner, USER.to_string());
 
+            let resp = get_payment_details_balance(&mut app, paths.clone());
+            assert_eq!(resp.amount, Uint128::new(100));
+
             let admin_balance_before = get_cw20_balance(&mut app, cw20_addr.clone(), ADMIN);
 
             withdraw_payments(&mut app, paths, ADMIN).unwrap();
@@ -961,9 +979,9 @@ mod tests {
 
     mod no_payment {
         use crate::integration_tests::tests::{
-            get_nft_owner, instantiate_cw20, mint_path_cw20, mint_path_native, mock_app,
-            setup_test_case, setup_test_case_with_name, withdraw_payments, ADMIN, NATIVE_DENOM,
-            USER,
+            get_nft_owner, get_payment_details_balance, instantiate_cw20, mint_path_cw20,
+            mint_path_native, mock_app, setup_test_case, setup_test_case_with_name,
+            withdraw_payments, ADMIN, NATIVE_DENOM, USER,
         };
         use cosmwasm_std::{coins, Uint128};
 
@@ -1021,6 +1039,9 @@ mod tests {
 
             let resp = get_nft_owner(&mut app, whoami, format!("{}::{}", token_id, path));
             assert_eq!(resp.owner, USER.to_string());
+
+            let resp = get_payment_details_balance(&mut app, paths.clone());
+            assert!(resp.amount.is_zero());
 
             withdraw_payments(&mut app, paths, ADMIN).unwrap();
         }

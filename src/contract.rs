@@ -11,7 +11,8 @@ use cw_utils::{must_pay, nonpayable};
 
 use crate::error::ContractError;
 use crate::msg::{
-    ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsResponse, QueryMsg, ReceiveMsg,
+    ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsBalanceResponse,
+    PaymentDetailsResponse, QueryMsg, ReceiveMsg,
 };
 use crate::state::{Config, CONFIG, PAYMENT_DETAILS};
 
@@ -412,11 +413,44 @@ pub fn execute_withdraw_payments(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::PaymentDetails {} => to_binary(&PaymentDetailsResponse {
             payment_details: PAYMENT_DETAILS.may_load(deps.storage)?,
         }),
+        QueryMsg::PaymentDetailsBalance {} => query_payment_details_balance(deps, env),
+    }
+}
+
+pub fn query_payment_details_balance(deps: Deps, env: Env) -> StdResult<Binary> {
+    let payment_details = PAYMENT_DETAILS.may_load(deps.storage)?;
+    if let Some(payment_details) = payment_details {
+        match payment_details.clone() {
+            PaymentDetails::Cw20 { token_address, .. } => {
+                let resp: BalanceResponse = deps.querier.query_wasm_smart(
+                    &token_address,
+                    &Cw20QueryMsg::Balance {
+                        address: env.contract.address.to_string(),
+                    },
+                )?;
+                to_binary(&PaymentDetailsBalanceResponse {
+                    payment_details: Some(payment_details),
+                    amount: resp.balance,
+                })
+            }
+            PaymentDetails::Native { denom, .. } => {
+                let balance = deps.querier.query_balance(env.contract.address, denom)?;
+                to_binary(&PaymentDetailsBalanceResponse {
+                    payment_details: Some(payment_details),
+                    amount: balance.amount,
+                })
+            }
+        }
+    } else {
+        to_binary(&PaymentDetailsBalanceResponse {
+            payment_details: None,
+            amount: Uint128::zero(),
+        })
     }
 }

@@ -46,10 +46,18 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     Config {},
     PaymentDetails {},
+    PaymentDetailsBalance {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct PaymentDetailsResponse {
     pub payment_details: Option<PaymentDetails>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PaymentDetailsBalanceResponse {
+    pub payment_details: Option<PaymentDetails>,
+    pub amount: Uint128,
 }

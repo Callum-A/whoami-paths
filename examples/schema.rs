@@ -4,7 +4,8 @@ use std::fs::create_dir_all;
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
 use whoami_paths::msg::{
-    ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsResponse, QueryMsg,
+    ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsBalanceResponse,
+    PaymentDetailsResponse, QueryMsg,
 };
 use whoami_paths::state::Config;
 
@@ -20,4 +21,5 @@ fn main() {
     export_schema(&schema_for!(Config), &out_dir);
     export_schema(&schema_for!(PaymentDetails), &out_dir);
     export_schema(&schema_for!(PaymentDetailsResponse), &out_dir);
+    export_schema(&schema_for!(PaymentDetailsBalanceResponse), &out_dir);
 }
