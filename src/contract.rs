@@ -1,11 +1,11 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    from_binary, to_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
-    Uint128, WasmMsg,
+    from_binary, to_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo,
+    Response, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
-use cw20::{Cw20ReceiveMsg, TokenInfoResponse};
+use cw20::{BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg, TokenInfoResponse};
 use cw721::Cw721ReceiveMsg;
 use cw_utils::{must_pay, nonpayable};
 
@@ -160,6 +160,7 @@ pub fn execute(
         ExecuteMsg::MintPath { path } => execute_mint_path(deps, env, info, path),
         ExecuteMsg::UpdateAdmin { new_admin } => execute_update_admin(deps, env, info, new_admin),
         ExecuteMsg::WithdrawRootToken {} => execute_withdraw_root_token(deps, env, info),
+        ExecuteMsg::WithdrawPayments {} => execute_withdraw_payments(deps, env, info),
     }
 }
 
@@ -348,6 +349,66 @@ pub fn execute_withdraw_root_token(
     Ok(Response::new()
         .add_attribute("action", "withdraw_root_token")
         .add_message(wasm_msg))
+}
+
+pub fn execute_withdraw_payments(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let payment_details = PAYMENT_DETAILS.may_load(deps.storage)?;
+    if info.sender != config.admin {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    if payment_details.is_none() {
+        return Err(ContractError::NoPaymentsToCollect {});
+    }
+    let payment_details = payment_details.unwrap();
+
+    let payment_msg = match payment_details {
+        PaymentDetails::Cw20 {
+            token_address,
+            amount: _,
+        } => {
+            let resp: BalanceResponse = deps.querier.query_wasm_smart(
+                &token_address,
+                &Cw20QueryMsg::Balance {
+                    address: env.contract.address.to_string(),
+                },
+            )?;
+            if resp.balance.is_zero() {
+                return Err(ContractError::NoPaymentsToCollect {});
+            }
+
+            let send_msg = Cw20ExecuteMsg::Transfer {
+                recipient: config.admin.to_string(),
+                amount: resp.balance,
+            };
+
+            CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: token_address,
+                msg: to_binary(&send_msg)?,
+                funds: vec![],
+            })
+        }
+        PaymentDetails::Native { denom, amount: _ } => {
+            let balance = deps.querier.query_balance(env.contract.address, denom)?;
+            if balance.amount.is_zero() {
+                return Err(ContractError::NoPaymentsToCollect {});
+            }
+
+            CosmosMsg::Bank(BankMsg::Send {
+                to_address: config.admin.to_string(),
+                amount: vec![balance],
+            })
+        }
+    };
+
+    Ok(Response::new()
+        .add_attribute("action", "withdraw_payments")
+        .add_message(payment_msg))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

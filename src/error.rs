@@ -28,6 +28,9 @@ pub enum ContractError {
     #[error("No payment is needed to mint a path")]
     NoPaymentNeeded {},
 
+    #[error("No payments are available to collect")]
+    NoPaymentsToCollect {},
+
     #[error("You have specified payment details but amount is set to 0")]
     InvalidPaymentAmount {},
 

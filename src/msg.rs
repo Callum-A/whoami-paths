@@ -37,6 +37,7 @@ pub enum ExecuteMsg {
     ReceiveNft(Cw721ReceiveMsg),
     MintPath { path: String }, // Equivalent to receive but with no cost
     UpdateAdmin { new_admin: String },
+    WithdrawPayments {},
     WithdrawRootToken {},
 }
 

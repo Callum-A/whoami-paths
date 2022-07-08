@@ -69,6 +69,18 @@
     {
       "type": "object",
       "required": [
+        "withdraw_payments"
+      ],
+      "properties": {
+        "withdraw_payments": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
         "withdraw_root_token"
       ],
       "properties": {
