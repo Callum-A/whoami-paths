@@ -1,12 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use crate::msg::{
-        ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsResponse, QueryMsg, ReceiveMsg,
-    };
+    use crate::msg::{ExecuteMsg, InstantiateMsg, PaymentDetails, QueryMsg};
     use crate::state::Config;
-    use cosmwasm_std::{coins, to_binary, Addr, Coin, Empty, Uint128};
+    use cosmwasm_std::{coins, Addr, Coin, Empty, Uint128};
     use cw20::Cw20Coin;
-    use cw721::{AllNftInfoResponse, Cw721QueryMsg, NftInfoResponse, OwnerOfResponse};
+    use cw721::{Cw721QueryMsg, OwnerOfResponse};
     use cw_multi_test::{
         next_block, App, AppBuilder, AppResponse, Contract, ContractWrapper, Executor,
     };
@@ -342,7 +340,7 @@ mod tests {
         .unwrap();
 
         // Check config, name is None
-        let config = get_config(&mut app, paths.clone());
+        let config = get_config(&mut app, paths);
         assert_eq!(config.token_id, None);
     }
 
@@ -381,7 +379,7 @@ mod tests {
         // Try to transfer to the contract
         transfer_name(
             &mut app,
-            whoami.clone(),
+            whoami,
             ADMIN,
             paths.to_string(),
             token_id_invalid.clone(),
@@ -404,14 +402,7 @@ mod tests {
         mint_name(&mut app, whoami.clone(), USER, &token_id).unwrap();
 
         // Transfer to the contract
-        transfer_name(
-            &mut app,
-            whoami.clone(),
-            USER,
-            paths.to_string(),
-            token_id.clone(),
-        )
-        .unwrap();
+        transfer_name(&mut app, whoami, USER, paths.to_string(), token_id.clone()).unwrap();
     }
 
     #[test]
@@ -440,7 +431,7 @@ mod tests {
         let config = get_config(&mut app, paths.clone());
         assert_eq!(config.admin, Addr::unchecked(ADMIN));
 
-        update_admin(&mut app, paths.clone(), USER, USER.to_string()).unwrap();
+        update_admin(&mut app, paths, USER, USER.to_string()).unwrap();
     }
 
     #[test]
@@ -469,9 +460,9 @@ mod tests {
         let config = get_config(&mut app, paths.clone());
         assert_eq!(config.token_id, Some(token_id.clone()));
 
-        withdraw_token(&mut app, paths.clone(), ADMIN).unwrap();
+        withdraw_token(&mut app, paths, ADMIN).unwrap();
 
-        let resp = get_nft_owner(&mut app, whoami.clone(), token_id);
+        let resp = get_nft_owner(&mut app, whoami, token_id);
         assert_eq!(resp.owner, ADMIN.to_string());
     }
 
@@ -504,13 +495,13 @@ mod tests {
         )
         .unwrap();
 
-        let resp = get_nft_owner(&mut app, whoami.clone(), token_id.clone());
+        let resp = get_nft_owner(&mut app, whoami, token_id.clone());
         assert_eq!(resp.owner, paths.to_string());
 
         // Check config, name is Some("root_name")
         let config = get_config(&mut app, paths.clone());
         assert_eq!(config.token_id, Some(token_id.clone()));
 
-        withdraw_token(&mut app, paths.clone(), USER).unwrap();
+        withdraw_token(&mut app, paths, USER).unwrap();
     }
 }
