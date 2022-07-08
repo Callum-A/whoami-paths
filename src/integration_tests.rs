@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::msg::{
-        ExecuteMsg, InstantiateMsg, QueryMsg, ReceiveMsg, TokenDetails, TokenDetailsResponse,
+        ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsResponse, QueryMsg, ReceiveMsg,
     };
     use crate::state::Config;
     use cosmwasm_std::{coins, to_binary, Addr, Coin, Empty, Uint128};
@@ -11,6 +11,10 @@ mod tests {
         next_block, App, AppBuilder, AppResponse, Contract, ContractWrapper, Executor,
     };
     use whoami::msg::SurchargeInfo;
+
+    const USER: &str = "addr1";
+    const ADMIN: &str = "addr2";
+    const NATIVE_DENOM: &str = "ujunox";
 
     pub fn contract_whoami_paths() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
@@ -38,10 +42,6 @@ mod tests {
         );
         Box::new(contract)
     }
-
-    const USER: &str = "USER";
-    const ADMIN: &str = "ADMIN";
-    const NATIVE_DENOM: &str = "denom";
 
     fn mock_app() -> App {
         AppBuilder::new().build(|router, _, storage| {
@@ -118,13 +118,13 @@ mod tests {
     fn instantiate_whoami_paths(
         app: &mut App,
         whoami_addr: Addr,
-        token_details: Option<TokenDetails>,
+        payment_details: Option<PaymentDetails>,
     ) -> Addr {
         let whoami_paths = app.store_code(contract_whoami_paths());
         let msg = InstantiateMsg {
             admin: ADMIN.to_string(),
             whoami_address: whoami_addr.to_string(),
-            token_details,
+            payment_details,
         };
         app.instantiate_contract(
             whoami_paths,
@@ -137,23 +137,11 @@ mod tests {
         .unwrap()
     }
 
-    fn setup_test_case(app: &mut App, with_token: bool) -> (Addr, Addr, Addr) {
-        let cw20_addr = instantiate_cw20(app);
+    fn setup_test_case(app: &mut App, payment_details: Option<PaymentDetails>) -> (Addr, Addr) {
         let whoami_addr = instantiate_whoami(app);
+        let paths_addr = instantiate_whoami_paths(app, whoami_addr.clone(), payment_details);
         app.update_block(next_block);
-        let paths_addr = if with_token {
-            instantiate_whoami_paths(
-                app,
-                whoami_addr.clone(),
-                Some(TokenDetails {
-                    token_address: cw20_addr.to_string(),
-                    token_cost: Uint128::new(100),
-                }),
-            )
-        } else {
-            instantiate_whoami_paths(app, whoami_addr.clone(), None)
-        };
-        (cw20_addr, whoami_addr, paths_addr)
+        (whoami_addr, paths_addr)
     }
 
     fn mint_name(
@@ -206,253 +194,196 @@ mod tests {
         app.execute_contract(Addr::unchecked(sender), whoami_addr, &msg, &[])
     }
 
-    fn mint_path_no_tokens(
-        app: &mut App,
-        paths_addr: Addr,
-        path: &str,
-        sender: &str,
-    ) -> anyhow::Result<AppResponse> {
-        let msg = ExecuteMsg::MintPath {
-            path: path.to_string(),
-        };
-        app.execute_contract(Addr::unchecked(sender), paths_addr, &msg, &[])
-    }
-
-    fn mint_path_tokens(
-        app: &mut App,
-        paths_addr: Addr,
-        cw20_addr: Addr,
-        path: &str,
-        sender: &str,
-        amount: u128,
-    ) -> anyhow::Result<AppResponse> {
-        let msg = cw20_base::msg::ExecuteMsg::Send {
-            contract: paths_addr.to_string(),
-            amount: Uint128::new(amount),
-            msg: to_binary(&ReceiveMsg::MintPath {
-                path: path.to_string(),
-            })
-            .unwrap(),
-        };
-        app.execute_contract(Addr::unchecked(sender), cw20_addr, &msg, &[])
+    fn get_config(app: &mut App, paths_addr: Addr) -> Config {
+        app.wrap()
+            .query_wasm_smart(paths_addr, &QueryMsg::Config {})
+            .unwrap()
     }
 
     #[test]
-    fn test_instantiate() {
+    fn test_instantiate_valid() {
         let mut app = mock_app();
-        let (_cw20, _whoami, _paths) = setup_test_case(&mut app, false);
-        let (_cw20, _whoami, _paths) = setup_test_case(&mut app, true);
+        // Instantiate with no payment
+        let (_whoami, _paths) = setup_test_case(&mut app, None);
+        // Instantiate with valid cw20
+        let cw20_addr = instantiate_cw20(&mut app);
+        let (_whoami, _paths) = setup_test_case(
+            &mut app,
+            Some(PaymentDetails::Cw20 {
+                token_address: cw20_addr.to_string(),
+                amount: Uint128::new(100),
+            }),
+        );
+        // Instantiate with native
+        let (_whoami, _paths) = setup_test_case(
+            &mut app,
+            Some(PaymentDetails::Native {
+                denom: NATIVE_DENOM.to_string(),
+                amount: Uint128::new(100),
+            }),
+        );
     }
 
     #[test]
-    fn test_receive_nft() {
+    #[should_panic(expected = "The token address provided is not a valid CW20 token")]
+    fn test_instantiate_invalid_cw20() {
         let mut app = mock_app();
-        let (_cw20, whoami, paths) = setup_test_case(&mut app, false);
-        let name = "howl_base";
-        mint_name(&mut app, whoami.clone(), ADMIN, name).unwrap();
-        let name2 = "howl_base2";
-        mint_name(&mut app, whoami.clone(), ADMIN, name2).unwrap();
-        let user_name = "user_name";
-        mint_name(&mut app, whoami.clone(), USER, user_name).unwrap();
+        // Instantiate with non CW20 addr
+        let (_whoami, _paths) = setup_test_case(
+            &mut app,
+            Some(PaymentDetails::Cw20 {
+                token_address: USER.to_string(),
+                amount: Uint128::new(100),
+            }),
+        );
+    }
 
-        // Cannot transfer from non admin
+    #[test]
+    #[should_panic(expected = "You have specified payment details but amount is set to 0")]
+    fn test_instantiate_invalid_cw20_amount() {
+        let mut app = mock_app();
+        let cw20_addr = instantiate_cw20(&mut app);
+        // Instantiate with 0 amount
+        let (_whoami, _paths) = setup_test_case(
+            &mut app,
+            Some(PaymentDetails::Cw20 {
+                token_address: cw20_addr.to_string(),
+                amount: Uint128::zero(),
+            }),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "You have specified payment details but amount is set to 0")]
+    fn test_instantiate_invalid_native_amount() {
+        let mut app = mock_app();
+        // Instantiate with 0 amount
+        let (_whoami, _paths) = setup_test_case(
+            &mut app,
+            Some(PaymentDetails::Native {
+                denom: NATIVE_DENOM.to_string(),
+                amount: Uint128::zero(),
+            }),
+        );
+    }
+
+    #[test]
+    fn test_receive_root_name() {
+        let mut app = mock_app();
+        let (whoami, paths) = setup_test_case(&mut app, None);
+
+        // Check config, name is None
+        let config = get_config(&mut app, paths.clone());
+        assert_eq!(config.token_id, None);
+
+        // Mint the name
+        let token_id = "root_name".to_string();
+        mint_name(&mut app, whoami.clone(), ADMIN, &token_id).unwrap();
+
+        // Transfer to the contract
+        transfer_name(&mut app, whoami, ADMIN, paths.to_string(), token_id.clone()).unwrap();
+
+        // Check config, name is Some("root_name")
+        let config = get_config(&mut app, paths);
+        assert_eq!(config.token_id, Some(token_id));
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_receive_root_name_invalid_nft_contract() {
+        let mut app = mock_app();
+        let (_whoami, paths) = setup_test_case(&mut app, None);
+        // Create again to get a different nft contract, it is invalid
+        let (whoami_invalid, _paths) = setup_test_case(&mut app, None);
+
+        // Check config, name is None
+        let config = get_config(&mut app, paths.clone());
+        assert_eq!(config.token_id, None);
+
+        // Mint the name
+        let token_id = "root_name".to_string();
+        mint_name(&mut app, whoami_invalid.clone(), ADMIN, &token_id).unwrap();
+
+        // Transfer to the contract
+        transfer_name(
+            &mut app,
+            whoami_invalid,
+            ADMIN,
+            paths.to_string(),
+            token_id.clone(),
+        )
+        .unwrap();
+
+        // Check config, name is None
+        let config = get_config(&mut app, paths.clone());
+        assert_eq!(config.token_id, None);
+    }
+
+    #[test]
+    #[should_panic(expected = "The root token has already been set")]
+    fn test_receive_root_name_root_name_already_set() {
+        let mut app = mock_app();
+        let (whoami, paths) = setup_test_case(&mut app, None);
+
+        // Check config, name is None
+        let config = get_config(&mut app, paths.clone());
+        assert_eq!(config.token_id, None);
+
+        // Mint the name
+        let token_id = "root_name".to_string();
+        mint_name(&mut app, whoami.clone(), ADMIN, &token_id).unwrap();
+
+        // Mint a second name
+        let token_id_invalid = "already_set".to_string();
+        mint_name(&mut app, whoami.clone(), ADMIN, &token_id_invalid).unwrap();
+
+        // Transfer to the contract
+        transfer_name(
+            &mut app,
+            whoami.clone(),
+            ADMIN,
+            paths.to_string(),
+            token_id.clone(),
+        )
+        .unwrap();
+
+        // Check config, name is Some("root_name")
+        let config = get_config(&mut app, paths.clone());
+        assert_eq!(config.token_id, Some(token_id));
+
+        // Try to transfer to the contract
+        transfer_name(
+            &mut app,
+            whoami.clone(),
+            ADMIN,
+            paths.to_string(),
+            token_id_invalid.clone(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_receive_root_name_non_admin() {
+        let mut app = mock_app();
+        let (whoami, paths) = setup_test_case(&mut app, None);
+
+        // Check config, name is None
+        let config = get_config(&mut app, paths.clone());
+        assert_eq!(config.token_id, None);
+
+        // Mint the name
+        let token_id = "root_name".to_string();
+        mint_name(&mut app, whoami.clone(), USER, &token_id).unwrap();
+
+        // Transfer to the contract
         transfer_name(
             &mut app,
             whoami.clone(),
             USER,
             paths.to_string(),
-            user_name.to_string(),
-        )
-        .unwrap_err();
-
-        transfer_name(
-            &mut app,
-            whoami.clone(),
-            ADMIN,
-            paths.to_string(),
-            name.to_string(),
+            token_id.clone(),
         )
         .unwrap();
-
-        let msg = QueryMsg::Config {};
-        let config: Config = app.wrap().query_wasm_smart(paths.clone(), &msg).unwrap();
-        assert_eq!(config.token_id, Some(name.to_string()));
-
-        // Cannot transfer another as already transferred
-        transfer_name(
-            &mut app,
-            whoami,
-            ADMIN,
-            paths.to_string(),
-            name2.to_string(),
-        )
-        .unwrap_err();
-    }
-
-    #[test]
-    fn test_paths_no_cost() {
-        // Setup
-        let mut app = mock_app();
-        let (cw20, whoami, paths) = setup_test_case(&mut app, false);
-        let name = "howl_base";
-        mint_name(&mut app, whoami.clone(), ADMIN, name).unwrap();
-        // Expect error no name to mint off of
-        mint_path_no_tokens(&mut app, paths.clone(), "a", USER).unwrap_err();
-
-        // Give the contract the name
-        transfer_name(&mut app, whoami, ADMIN, paths.to_string(), name.to_string()).unwrap();
-
-        // Success
-        mint_path_no_tokens(&mut app, paths.clone(), "a", USER).unwrap();
-        mint_path_no_tokens(&mut app, paths.clone(), "b", ADMIN).unwrap();
-
-        // Expect error already minted path
-        mint_path_no_tokens(&mut app, paths.clone(), "b", USER).unwrap_err();
-
-        // Expect error you do not need to pay
-        mint_path_tokens(&mut app, paths, cw20, "c", USER, 1000).unwrap_err();
-    }
-
-    #[test]
-    fn test_paths_cost() {
-        let mut app = mock_app();
-        let (cw20, whoami, paths) = setup_test_case(&mut app, true);
-        let name = "howl_base";
-        mint_name(&mut app, whoami.clone(), ADMIN, name).unwrap();
-        // Expect error no name to mint off of
-        mint_path_tokens(&mut app, paths.clone(), cw20.clone(), "a", USER, 1000).unwrap_err();
-
-        // Give the contract the name
-        transfer_name(&mut app, whoami, ADMIN, paths.to_string(), name.to_string()).unwrap();
-
-        // Success
-        mint_path_tokens(&mut app, paths.clone(), cw20.clone(), "a", USER, 100).unwrap();
-        mint_path_tokens(&mut app, paths.clone(), cw20.clone(), "b", ADMIN, 100).unwrap();
-
-        // Expect error not enough paid
-        mint_path_tokens(&mut app, paths.clone(), cw20.clone(), "d", ADMIN, 99).unwrap_err();
-
-        // Expect error already minted path
-        mint_path_tokens(&mut app, paths.clone(), cw20, "b", USER, 100).unwrap_err();
-
-        // Expect error you need to pay
-        mint_path_no_tokens(&mut app, paths, "c", USER).unwrap_err();
-    }
-
-    #[test]
-    fn test_update_admin() {
-        let mut app = mock_app();
-        let (_cw20, _whoami, paths) = setup_test_case(&mut app, true);
-
-        // Set admin to USER
-        let msg = ExecuteMsg::UpdateAdmin {
-            new_admin: USER.to_string(),
-        };
-
-        // Fails as USER is not the admin
-        app.execute_contract(Addr::unchecked(USER), paths.clone(), &msg, &[])
-            .unwrap_err();
-
-        // Success
-        app.execute_contract(Addr::unchecked(ADMIN), paths.clone(), &msg, &[])
-            .unwrap();
-
-        let msg = QueryMsg::Config {};
-        let config: Config = app.wrap().query_wasm_smart(paths, &msg).unwrap();
-        assert_eq!(config.admin, Addr::unchecked(USER));
-    }
-
-    #[test]
-    fn test_update_token_details() {
-        let mut app = mock_app();
-        let (cw20, _whoami, paths) = setup_test_case(&mut app, false);
-
-        // No token
-        let msg = QueryMsg::TokenDetails {};
-        let config: TokenDetailsResponse =
-            app.wrap().query_wasm_smart(paths.clone(), &msg).unwrap();
-        assert_eq!(config.token_details, None);
-
-        let msg = ExecuteMsg::UpdateTokenDetails {
-            new_token_details: Some(TokenDetails {
-                token_address: cw20.to_string(),
-                token_cost: Uint128::new(50),
-            }),
-        };
-
-        // Fails as USER is not the admin
-        app.execute_contract(Addr::unchecked(USER), paths.clone(), &msg, &[])
-            .unwrap_err();
-
-        // Success
-        app.execute_contract(Addr::unchecked(ADMIN), paths.clone(), &msg, &[])
-            .unwrap();
-
-        // Now there is a token
-        let msg = QueryMsg::TokenDetails {};
-        let config: TokenDetailsResponse =
-            app.wrap().query_wasm_smart(paths.clone(), &msg).unwrap();
-        assert_eq!(
-            config.token_details,
-            Some(TokenDetails {
-                token_address: cw20.to_string(),
-                token_cost: Uint128::new(50)
-            })
-        );
-
-        // Remove the token
-        let msg = ExecuteMsg::UpdateTokenDetails {
-            new_token_details: None,
-        };
-
-        app.execute_contract(Addr::unchecked(ADMIN), paths.clone(), &msg, &[])
-            .unwrap();
-
-        // No token again
-        let msg = QueryMsg::TokenDetails {};
-        let config: TokenDetailsResponse = app.wrap().query_wasm_smart(paths, &msg).unwrap();
-        assert_eq!(config.token_details, None);
-    }
-
-    #[test]
-    fn test_withdraw_root_token() {
-        // Setup
-        let mut app = mock_app();
-        let (_cw20, whoami, paths) = setup_test_case(&mut app, false);
-        let name = "howl_base";
-        mint_name(&mut app, whoami.clone(), ADMIN, name).unwrap();
-        // Expect error no token to withdraw
-        let msg = ExecuteMsg::WithdrawRootToken {};
-        app.execute_contract(Addr::unchecked(ADMIN), paths.clone(), &msg, &[])
-            .unwrap_err();
-
-        // Give the contract the name
-        transfer_name(
-            &mut app,
-            whoami.clone(),
-            ADMIN,
-            paths.to_string(),
-            name.to_string(),
-        )
-        .unwrap();
-
-        // Expect error withdrawer is not the admin
-        app.execute_contract(Addr::unchecked(USER), paths.clone(), &msg, &[])
-            .unwrap_err();
-
-        // Success
-        app.execute_contract(Addr::unchecked(ADMIN), paths.clone(), &msg, &[])
-            .unwrap();
-
-        let msg = QueryMsg::Config {};
-        let config: Config = app.wrap().query_wasm_smart(paths, &msg).unwrap();
-        assert_eq!(config.token_id, None);
-
-        let msg = whoami::msg::QueryMsg::OwnerOf {
-            token_id: name.to_string(),
-            include_expired: None,
-        };
-        let resp: OwnerOfResponse = app.wrap().query_wasm_smart(whoami, &msg).unwrap();
-        assert_eq!(resp.owner, ADMIN.to_string());
     }
 }

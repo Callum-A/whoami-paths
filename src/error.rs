@@ -1,10 +1,14 @@
 use cosmwasm_std::StdError;
+use cw_utils::PaymentError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
+
+    #[error("{0}")]
+    PaymentError(#[from] PaymentError),
 
     #[error("Unauthorized")]
     Unauthorized {},
@@ -21,6 +25,12 @@ pub enum ContractError {
     #[error("The root token has already been set")]
     ExistingRootToken {},
 
-    #[error("No CW20 payment needed to mint a path")]
+    #[error("No payment is needed to mint a path")]
     NoPaymentNeeded {},
+
+    #[error("You have specified payment details but amount is set to 0")]
+    InvalidPaymentAmount {},
+
+    #[error("The token address provided is not a valid CW20 token")]
+    InvalidCw20 {},
 }

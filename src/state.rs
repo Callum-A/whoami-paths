@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::msg::TokenDetails;
+use crate::msg::PaymentDetails;
 use cosmwasm_std::Addr;
 use cw_storage_plus::Item;
 
@@ -13,4 +13,4 @@ pub struct Config {
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");
-pub const TOKEN_DETAILS: Item<TokenDetails> = Item::new("token_details");
+pub const PAYMENT_DETAILS: Item<PaymentDetails> = Item::new("payment_details");
