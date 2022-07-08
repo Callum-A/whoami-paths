@@ -6,7 +6,7 @@ mod tests {
     use crate::state::Config;
     use cosmwasm_std::{coins, to_binary, Addr, Coin, Empty, Uint128};
     use cw20::Cw20Coin;
-    use cw721::OwnerOfResponse;
+    use cw721::{AllNftInfoResponse, Cw721QueryMsg, NftInfoResponse, OwnerOfResponse};
     use cw_multi_test::{
         next_block, App, AppBuilder, AppResponse, Contract, ContractWrapper, Executor,
     };
@@ -194,10 +194,37 @@ mod tests {
         app.execute_contract(Addr::unchecked(sender), whoami_addr, &msg, &[])
     }
 
+    fn update_admin(
+        app: &mut App,
+        paths_addr: Addr,
+        sender: &str,
+        new_admin: String,
+    ) -> anyhow::Result<AppResponse> {
+        let msg = ExecuteMsg::UpdateAdmin { new_admin };
+        app.execute_contract(Addr::unchecked(sender), paths_addr, &msg, &[])
+    }
+
+    fn withdraw_token(
+        app: &mut App,
+        paths_addr: Addr,
+        sender: &str,
+    ) -> anyhow::Result<AppResponse> {
+        let msg = ExecuteMsg::WithdrawRootToken {};
+        app.execute_contract(Addr::unchecked(sender), paths_addr, &msg, &[])
+    }
+
     fn get_config(app: &mut App, paths_addr: Addr) -> Config {
         app.wrap()
             .query_wasm_smart(paths_addr, &QueryMsg::Config {})
             .unwrap()
+    }
+
+    fn get_nft_owner(app: &mut App, whoami_addr: Addr, token_id: String) -> OwnerOfResponse {
+        let msg = Cw721QueryMsg::OwnerOf {
+            token_id,
+            include_expired: None,
+        };
+        app.wrap().query_wasm_smart(whoami_addr, &msg).unwrap()
     }
 
     #[test]
@@ -385,5 +412,105 @@ mod tests {
             token_id.clone(),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_update_admin() {
+        let mut app = mock_app();
+        let (_whoami, paths) = setup_test_case(&mut app, None);
+
+        // Check config, admin is ADMIN
+        let config = get_config(&mut app, paths.clone());
+        assert_eq!(config.admin, Addr::unchecked(ADMIN));
+
+        update_admin(&mut app, paths.clone(), ADMIN, USER.to_string()).unwrap();
+
+        // Check config, admin is USER
+        let config = get_config(&mut app, paths);
+        assert_eq!(config.admin, Addr::unchecked(USER));
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_update_admin_invalid() {
+        let mut app = mock_app();
+        let (_whoami, paths) = setup_test_case(&mut app, None);
+
+        // Check config, admin is ADMIN
+        let config = get_config(&mut app, paths.clone());
+        assert_eq!(config.admin, Addr::unchecked(ADMIN));
+
+        update_admin(&mut app, paths.clone(), USER, USER.to_string()).unwrap();
+    }
+
+    #[test]
+    fn test_withdraw_root_name() {
+        let mut app = mock_app();
+        let (whoami, paths) = setup_test_case(&mut app, None);
+
+        // Mint the name
+        let token_id = "root_name".to_string();
+        mint_name(&mut app, whoami.clone(), ADMIN, &token_id).unwrap();
+
+        // Transfer to the contract
+        transfer_name(
+            &mut app,
+            whoami.clone(),
+            ADMIN,
+            paths.to_string(),
+            token_id.clone(),
+        )
+        .unwrap();
+
+        let resp = get_nft_owner(&mut app, whoami.clone(), token_id.clone());
+        assert_eq!(resp.owner, paths.to_string());
+
+        // Check config, name is Some("root_name")
+        let config = get_config(&mut app, paths.clone());
+        assert_eq!(config.token_id, Some(token_id.clone()));
+
+        withdraw_token(&mut app, paths.clone(), ADMIN).unwrap();
+
+        let resp = get_nft_owner(&mut app, whoami.clone(), token_id);
+        assert_eq!(resp.owner, ADMIN.to_string());
+    }
+
+    #[test]
+    #[should_panic(expected = "The root token has not been received yet")]
+    fn test_withdraw_root_name_no_name() {
+        let mut app = mock_app();
+        let (_whoami, paths) = setup_test_case(&mut app, None);
+
+        withdraw_token(&mut app, paths, ADMIN).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_withdraw_root_name_non_admin() {
+        let mut app = mock_app();
+        let (whoami, paths) = setup_test_case(&mut app, None);
+
+        // Mint the name
+        let token_id = "root_name".to_string();
+        mint_name(&mut app, whoami.clone(), ADMIN, &token_id).unwrap();
+
+        // Transfer to the contract
+        transfer_name(
+            &mut app,
+            whoami.clone(),
+            ADMIN,
+            paths.to_string(),
+            token_id.clone(),
+        )
+        .unwrap();
+
+        let resp = get_nft_owner(&mut app, whoami.clone(), token_id.clone());
+        assert_eq!(resp.owner, paths.to_string());
+
+        // Check config, name is Some("root_name")
+        let config = get_config(&mut app, paths.clone());
+        assert_eq!(config.token_id, Some(token_id.clone()));
+
+        withdraw_token(&mut app, paths.clone(), USER).unwrap();
     }
 }
