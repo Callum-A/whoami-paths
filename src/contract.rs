@@ -2,16 +2,16 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     from_binary, to_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo,
-    Response, StdResult, Uint128, WasmMsg,
+    QuerierWrapper, Response, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg, TokenInfoResponse};
-use cw721::Cw721ReceiveMsg;
+use cw721::{Cw721QueryMsg, Cw721ReceiveMsg, OwnerOfResponse};
 use cw_utils::{must_pay, nonpayable};
 
 use crate::error::ContractError;
 use crate::msg::{
-    ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsBalanceResponse,
+    ClaimInfoResponse, ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsBalanceResponse,
     PaymentDetailsResponse, QueryMsg, ReceiveMsg,
 };
 use crate::state::{Config, CONFIG, PAYMENT_DETAILS};
@@ -75,6 +75,36 @@ pub fn mint_path_msg(
     Ok(vec![wasm_msg1, wasm_msg2])
 }
 
+fn get_dens_owner(
+    querier: &QuerierWrapper,
+    token_id: String,
+    address_minting_the_path: String,
+) -> Option<String> {
+    let resp: Option<String> = querier
+        .query_wasm_smart(
+            &address_minting_the_path,
+            &Cw721QueryMsg::OwnerOf {
+                token_id: token_id,
+                include_expired: None,
+            },
+        )
+        .map(|resp: OwnerOfResponse| resp.owner)
+        .ok();
+
+    return resp;
+}
+
+fn is_in_claim_window(
+    path_root_claim_window: Option<u64>,
+    init_height: u64,
+    current_height: u64,
+) -> bool {
+    match path_root_claim_window {
+        Some(w) => init_height + u64::from(w) < current_height,
+        None => false,
+    }
+}
+
 fn mint(
     env: Env,
     whoami_address: String,
@@ -103,7 +133,7 @@ fn mint(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -116,6 +146,8 @@ pub fn instantiate(
         whoami_address: whoami_address.to_string(),
         admin: admin.clone(),
         token_id: None,
+        initial_height: env.block.height,
+        path_root_claim_blocks: msg.path_root_claim_blocks,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -183,9 +215,30 @@ pub fn execute_receive_cw20(
         // We have no token to mint off of
         return Err(ContractError::NoRootToken {});
     }
-    let token_id = config.token_id.unwrap();
 
+    let token_id = config.token_id.unwrap();
     let payment_details = payment_details.unwrap();
+    let recv_msg: ReceiveMsg = from_binary(&cw20_receive.msg)?;
+    let path = match recv_msg {
+        ReceiveMsg::MintPath { path } => path,
+    };
+
+    let path_as_base_owner =
+        get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
+
+    if let Some(path_as_base_owner) = path_as_base_owner {
+        if is_in_claim_window(
+            config.path_root_claim_blocks,
+            config.initial_height,
+            env.block.height,
+        ) {
+            if cw20_receive.sender == path_as_base_owner {
+                return Err(ContractError::NoPaymentNeeded {});
+            } else {
+                return Err(ContractError::RootInClaimWindowToken {});
+            }
+        }
+    }
 
     match payment_details {
         PaymentDetails::Cw20 {
@@ -196,12 +249,6 @@ pub fn execute_receive_cw20(
                 // Unrecognised token
                 return Err(ContractError::UnrecognisedToken {});
             }
-
-            let recv_msg: ReceiveMsg = from_binary(&cw20_receive.msg)?;
-
-            let path = match recv_msg {
-                ReceiveMsg::MintPath { path } => path,
-            };
 
             mint(
                 env,
@@ -254,12 +301,29 @@ pub fn execute_mint_path(
     path: String,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let payment_details = PAYMENT_DETAILS.may_load(deps.storage)?;
+    let mut payment_details = PAYMENT_DETAILS.may_load(deps.storage)?;
     if config.token_id.is_none() {
         // No token to mint off of
         return Err(ContractError::NoRootToken {});
     }
     let token_id = config.token_id.unwrap();
+
+    let path_as_base_owner =
+        get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
+
+    if let Some(path_as_base_owner) = path_as_base_owner {
+        if is_in_claim_window(
+            config.path_root_claim_blocks,
+            config.initial_height,
+            env.block.height,
+        ) {
+            if info.sender.to_string() != path_as_base_owner {
+                payment_details = None
+            } else {
+                return Err(ContractError::RootInClaimWindowToken {});
+            }
+        }
+    }
 
     if let Some(payment_details) = payment_details {
         match payment_details {
@@ -420,6 +484,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             payment_details: PAYMENT_DETAILS.may_load(deps.storage)?,
         }),
         QueryMsg::PaymentDetailsBalance {} => query_payment_details_balance(deps, env),
+        QueryMsg::ClaimInfo { path } => query_claim_info(deps, env, path),
     }
 }
 
@@ -453,4 +518,19 @@ pub fn query_payment_details_balance(deps: Deps, env: Env) -> StdResult<Binary> 
             amount: Uint128::zero(),
         })
     }
+}
+
+pub fn query_claim_info(deps: Deps, env: Env, path: String) -> StdResult<Binary> {
+    let config = CONFIG.load(deps.storage)?;
+    let path_as_base_owner =
+        get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
+
+    to_binary(&ClaimInfoResponse {
+        is_in_claim_window: is_in_claim_window(
+            config.path_root_claim_blocks,
+            config.initial_height,
+            env.block.height,
+        ),
+        path_as_base_owner,
+    })
 }
