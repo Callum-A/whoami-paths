@@ -135,6 +135,7 @@ mod tests {
             admin: ADMIN.to_string(),
             whoami_address: whoami_addr.to_string(),
             payment_details,
+            path_root_claim_blocks: None,
         };
         app.instantiate_contract(
             whoami_paths,

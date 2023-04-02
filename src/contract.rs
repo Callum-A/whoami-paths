@@ -11,8 +11,8 @@ use cw_utils::{must_pay, nonpayable};
 
 use crate::error::ContractError;
 use crate::msg::{
-    ClaimInfoResponse, ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsBalanceResponse,
-    PaymentDetailsResponse, QueryMsg, ReceiveMsg,
+    ClaimInfoResponse, ExecuteMsg, InstantiateMsg, MigrateMsg, PaymentDetails,
+    PaymentDetailsBalanceResponse, PaymentDetailsResponse, QueryMsg, ReceiveMsg,
 };
 use crate::state::{Config, CONFIG, PAYMENT_DETAILS};
 
@@ -533,4 +533,26 @@ pub fn query_claim_info(deps: Deps, env: Env, path: String) -> StdResult<Binary>
         ),
         path_as_base_owner,
     })
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
+    let config = CONFIG.update(deps.storage, |mut config| -> Result<_, ContractError> {
+        config.initial_height = env.block.height;
+        config.path_root_claim_blocks = msg.path_root_claim_blocks;
+
+        Ok(config)
+    })?;
+
+    Ok(Response::new()
+        .add_attribute("action", "migrate")
+        .add_attribute(
+            "path_root_claim_blocks",
+            config
+                .path_root_claim_blocks
+                .unwrap_or_default()
+                .to_string(),
+        ))
 }

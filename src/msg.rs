@@ -70,3 +70,9 @@ pub struct ClaimInfoResponse {
     pub is_in_claim_window: bool,
     pub path_as_base_owner: Option<String>,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct MigrateMsg {
+    pub path_root_claim_blocks: Option<u64>,
+}
