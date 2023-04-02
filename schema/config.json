@@ -4,11 +4,25 @@
   "type": "object",
   "required": [
     "admin",
+    "initial_height",
     "whoami_address"
   ],
   "properties": {
     "admin": {
       "$ref": "#/definitions/Addr"
+    },
+    "initial_height": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "path_root_claim_blocks": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0.0
     },
     "token_id": {
       "type": [

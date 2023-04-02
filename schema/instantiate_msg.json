@@ -10,6 +10,14 @@
     "admin": {
       "type": "string"
     },
+    "path_root_claim_blocks": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0.0
+    },
     "payment_details": {
       "anyOf": [
         {
