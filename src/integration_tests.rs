@@ -14,6 +14,7 @@ mod tests {
 
     const USER: &str = "addr1";
     const ADMIN: &str = "addr2";
+    const USER2: &str = "addr3";
     const NATIVE_DENOM: &str = "ujunox";
     const INVALID_DENOM: &str = "uinvalid";
 
@@ -80,6 +81,23 @@ mod tests {
                     ],
                 )
                 .unwrap();
+            router
+                .bank
+                .init_balance(
+                    storage,
+                    &Addr::unchecked(USER2),
+                    vec![
+                        Coin {
+                            denom: NATIVE_DENOM.to_string(),
+                            amount: Uint128::new(1000000000),
+                        },
+                        Coin {
+                            denom: INVALID_DENOM.to_string(),
+                            amount: Uint128::new(1000000000),
+                        },
+                    ],
+                )
+                .unwrap();
         })
     }
 
@@ -129,13 +147,14 @@ mod tests {
         app: &mut App,
         whoami_addr: Addr,
         payment_details: Option<PaymentDetails>,
+        path_root_claim_blocks: Option<u64>,
     ) -> Addr {
         let whoami_paths = app.store_code(contract_whoami_paths());
         let msg = InstantiateMsg {
             admin: ADMIN.to_string(),
             whoami_address: whoami_addr.to_string(),
             payment_details,
-            path_root_claim_blocks: None,
+            path_root_claim_blocks,
         };
         app.instantiate_contract(
             whoami_paths,
@@ -148,9 +167,18 @@ mod tests {
         .unwrap()
     }
 
-    fn setup_test_case(app: &mut App, payment_details: Option<PaymentDetails>) -> (Addr, Addr) {
+    fn setup_test_case(
+        app: &mut App,
+        payment_details: Option<PaymentDetails>,
+        path_root_claim_blocks: Option<u64>,
+    ) -> (Addr, Addr) {
         let whoami_addr = instantiate_whoami(app);
-        let paths_addr = instantiate_whoami_paths(app, whoami_addr.clone(), payment_details);
+        let paths_addr = instantiate_whoami_paths(
+            app,
+            whoami_addr.clone(),
+            payment_details,
+            path_root_claim_blocks,
+        );
         app.update_block(next_block);
         (whoami_addr, paths_addr)
     }
@@ -158,8 +186,9 @@ mod tests {
     fn setup_test_case_with_name(
         app: &mut App,
         payment_details: Option<PaymentDetails>,
+        path_root_claim_blocks: Option<u64>,
     ) -> (Addr, Addr, String) {
-        let (whoami, paths) = setup_test_case(app, payment_details);
+        let (whoami, paths) = setup_test_case(app, payment_details, path_root_claim_blocks);
 
         // Mint the name
         let token_id = "root_name".to_string();
@@ -328,7 +357,7 @@ mod tests {
     fn test_instantiate_valid() {
         let mut app = mock_app();
         // Instantiate with no payment
-        let (_whoami, _paths) = setup_test_case(&mut app, None);
+        let (_whoami, _paths) = setup_test_case(&mut app, None, None);
         // Instantiate with valid cw20
         let cw20_addr = instantiate_cw20(&mut app);
         let (_whoami, _paths) = setup_test_case(
@@ -337,6 +366,7 @@ mod tests {
                 token_address: cw20_addr.to_string(),
                 amount: Uint128::new(100),
             }),
+            None,
         );
         // Instantiate with native
         let (_whoami, _paths) = setup_test_case(
@@ -345,6 +375,7 @@ mod tests {
                 denom: NATIVE_DENOM.to_string(),
                 amount: Uint128::new(100),
             }),
+            None,
         );
     }
 
@@ -359,6 +390,7 @@ mod tests {
                 token_address: USER.to_string(),
                 amount: Uint128::new(100),
             }),
+            None,
         );
     }
 
@@ -374,6 +406,7 @@ mod tests {
                 token_address: cw20_addr.to_string(),
                 amount: Uint128::zero(),
             }),
+            None,
         );
     }
 
@@ -388,13 +421,14 @@ mod tests {
                 denom: NATIVE_DENOM.to_string(),
                 amount: Uint128::zero(),
             }),
+            None,
         );
     }
 
     #[test]
     fn test_receive_root_name() {
         let mut app = mock_app();
-        let (whoami, paths) = setup_test_case(&mut app, None);
+        let (whoami, paths) = setup_test_case(&mut app, None, None);
 
         // Check config, name is None
         let config = get_config(&mut app, paths.clone());
@@ -416,9 +450,9 @@ mod tests {
     #[should_panic(expected = "Unauthorized")]
     fn test_receive_root_name_invalid_nft_contract() {
         let mut app = mock_app();
-        let (_whoami, paths) = setup_test_case(&mut app, None);
+        let (_whoami, paths) = setup_test_case(&mut app, None, None);
         // Create again to get a different nft contract, it is invalid
-        let (whoami_invalid, _paths) = setup_test_case(&mut app, None);
+        let (whoami_invalid, _paths) = setup_test_case(&mut app, None, None);
 
         // Check config, name is None
         let config = get_config(&mut app, paths.clone());
@@ -447,7 +481,7 @@ mod tests {
     #[should_panic(expected = "The root token has already been set")]
     fn test_receive_root_name_root_name_already_set() {
         let mut app = mock_app();
-        let (whoami, paths) = setup_test_case(&mut app, None);
+        let (whoami, paths) = setup_test_case(&mut app, None, None);
 
         // Check config, name is None
         let config = get_config(&mut app, paths.clone());
@@ -490,7 +524,7 @@ mod tests {
     #[should_panic(expected = "Unauthorized")]
     fn test_receive_root_name_non_admin() {
         let mut app = mock_app();
-        let (whoami, paths) = setup_test_case(&mut app, None);
+        let (whoami, paths) = setup_test_case(&mut app, None, None);
 
         // Check config, name is None
         let config = get_config(&mut app, paths.clone());
@@ -507,7 +541,7 @@ mod tests {
     #[test]
     fn test_update_admin() {
         let mut app = mock_app();
-        let (_whoami, paths) = setup_test_case(&mut app, None);
+        let (_whoami, paths) = setup_test_case(&mut app, None, None);
 
         // Check config, admin is ADMIN
         let config = get_config(&mut app, paths.clone());
@@ -524,7 +558,7 @@ mod tests {
     #[should_panic(expected = "Unauthorized")]
     fn test_update_admin_invalid() {
         let mut app = mock_app();
-        let (_whoami, paths) = setup_test_case(&mut app, None);
+        let (_whoami, paths) = setup_test_case(&mut app, None, None);
 
         // Check config, admin is ADMIN
         let config = get_config(&mut app, paths.clone());
@@ -536,7 +570,7 @@ mod tests {
     #[test]
     fn test_withdraw_root_name() {
         let mut app = mock_app();
-        let (whoami, paths) = setup_test_case(&mut app, None);
+        let (whoami, paths) = setup_test_case(&mut app, None, None);
 
         // Mint the name
         let token_id = "root_name".to_string();
@@ -569,7 +603,7 @@ mod tests {
     #[should_panic(expected = "The root token has not been received yet")]
     fn test_withdraw_root_name_no_name() {
         let mut app = mock_app();
-        let (_whoami, paths) = setup_test_case(&mut app, None);
+        let (_whoami, paths) = setup_test_case(&mut app, None, None);
 
         withdraw_token(&mut app, paths, ADMIN).unwrap();
     }
@@ -578,7 +612,7 @@ mod tests {
     #[should_panic(expected = "Unauthorized")]
     fn test_withdraw_root_name_non_admin() {
         let mut app = mock_app();
-        let (whoami, paths) = setup_test_case(&mut app, None);
+        let (whoami, paths) = setup_test_case(&mut app, None, None);
 
         // Mint the name
         let token_id = "root_name".to_string();
@@ -622,6 +656,7 @@ mod tests {
                     denom: NATIVE_DENOM.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -641,6 +676,7 @@ mod tests {
                     denom: NATIVE_DENOM.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -657,6 +693,7 @@ mod tests {
                     denom: NATIVE_DENOM.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -673,6 +710,7 @@ mod tests {
                     denom: NATIVE_DENOM.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -690,6 +728,7 @@ mod tests {
                     denom: NATIVE_DENOM.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -700,7 +739,7 @@ mod tests {
         #[should_panic(expected = "The root token has not been received yet")]
         fn test_mint_path_no_root_name() {
             let mut app = mock_app();
-            let (_whoami, paths) = setup_test_case(&mut app, None);
+            let (_whoami, paths) = setup_test_case(&mut app, None, None);
 
             let path = "a".to_string();
             mint_path_native(&mut app, paths, USER, &path, coins(100, NATIVE_DENOM)).unwrap();
@@ -715,6 +754,7 @@ mod tests {
                     denom: NATIVE_DENOM.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -761,6 +801,7 @@ mod tests {
                     denom: NATIVE_DENOM.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             withdraw_payments(&mut app, paths, ADMIN).unwrap();
@@ -776,6 +817,7 @@ mod tests {
                     denom: NATIVE_DENOM.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             withdraw_payments(&mut app, paths, USER).unwrap();
@@ -801,6 +843,7 @@ mod tests {
                     token_address: cw20_addr.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -822,6 +865,7 @@ mod tests {
                     token_address: cw20_addr.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -847,6 +891,7 @@ mod tests {
                     token_address: cw20_addr.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -864,6 +909,7 @@ mod tests {
                     token_address: cw20_addr.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -881,6 +927,7 @@ mod tests {
                     token_address: cw20_addr.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -898,6 +945,7 @@ mod tests {
                     token_address: cw20_addr.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -914,6 +962,7 @@ mod tests {
                     token_address: cw20_addr.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             let path = "a".to_string();
@@ -956,6 +1005,7 @@ mod tests {
                     token_address: cw20_addr.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             withdraw_payments(&mut app, paths, ADMIN).unwrap();
@@ -972,6 +1022,7 @@ mod tests {
                     token_address: cw20_addr.to_string(),
                     amount: Uint128::new(100),
                 }),
+                None,
             );
 
             withdraw_payments(&mut app, paths, USER).unwrap();
@@ -989,7 +1040,7 @@ mod tests {
         #[test]
         fn test_mint_path() {
             let mut app = mock_app();
-            let (whoami, paths, token_id) = setup_test_case_with_name(&mut app, None);
+            let (whoami, paths, token_id) = setup_test_case_with_name(&mut app, None, None);
 
             let path = "a".to_string();
             mint_path_native(&mut app, paths, USER, &path, vec![]).unwrap();
@@ -1002,7 +1053,7 @@ mod tests {
         #[should_panic(expected = "This message does no accept funds")]
         fn test_mint_path_pay_native() {
             let mut app = mock_app();
-            let (_whoami, paths, _token_id) = setup_test_case_with_name(&mut app, None);
+            let (_whoami, paths, _token_id) = setup_test_case_with_name(&mut app, None, None);
 
             let path = "a".to_string();
             mint_path_native(&mut app, paths, USER, &path, coins(1000, NATIVE_DENOM)).unwrap();
@@ -1013,7 +1064,7 @@ mod tests {
         fn test_mint_path_pay_cw20() {
             let mut app = mock_app();
             let cw20_addr = instantiate_cw20(&mut app);
-            let (_whoami, paths, _token_id) = setup_test_case_with_name(&mut app, None);
+            let (_whoami, paths, _token_id) = setup_test_case_with_name(&mut app, None, None);
 
             let path = "a".to_string();
             mint_path_cw20(&mut app, cw20_addr, paths, USER, Uint128::new(100), &path).unwrap();
@@ -1023,7 +1074,7 @@ mod tests {
         #[should_panic(expected = "The root token has not been received yet")]
         fn test_mint_path_no_root_name() {
             let mut app = mock_app();
-            let (_whoami, paths) = setup_test_case(&mut app, None);
+            let (_whoami, paths) = setup_test_case(&mut app, None, None);
 
             let path = "a".to_string();
             mint_path_native(&mut app, paths, USER, &path, vec![]).unwrap();
@@ -1033,7 +1084,7 @@ mod tests {
         #[should_panic(expected = "No payments are available to collect")]
         fn test_withdraw_payments() {
             let mut app = mock_app();
-            let (whoami, paths, token_id) = setup_test_case_with_name(&mut app, None);
+            let (whoami, paths, token_id) = setup_test_case_with_name(&mut app, None, None);
 
             let path = "a".to_string();
             mint_path_native(&mut app, paths.clone(), USER, &path, vec![]).unwrap();
@@ -1051,7 +1102,7 @@ mod tests {
         #[should_panic(expected = "Unauthorized")]
         fn test_withdraw_payments_non_admin() {
             let mut app = mock_app();
-            let (whoami, paths, token_id) = setup_test_case_with_name(&mut app, None);
+            let (whoami, paths, token_id) = setup_test_case_with_name(&mut app, None, None);
 
             let path = "a".to_string();
             mint_path_native(&mut app, paths.clone(), USER, &path, vec![]).unwrap();
@@ -1060,6 +1111,117 @@ mod tests {
             assert_eq!(resp.owner, USER.to_string());
 
             withdraw_payments(&mut app, paths, USER).unwrap();
+        }
+    }
+
+    mod path_root_claim {
+        use crate::{
+            integration_tests::tests::{
+                get_nft_owner, instantiate_cw20, mint_name, mint_path_cw20, mint_path_native,
+                mock_app, setup_test_case_with_name, NATIVE_DENOM, USER, USER2,
+            },
+            msg::PaymentDetails,
+        };
+        use cosmwasm_std::{coins, Uint128};
+
+        #[test]
+        #[should_panic(expected = "For the path exists root token with same name")]
+        fn test_mint_path_existing_root_no_payment() {
+            let mut app = mock_app();
+            let (whoami, paths, _token_id) = setup_test_case_with_name(&mut app, None, Some(2));
+
+            // Mint the name
+            let root_token_id = "another_root".to_string();
+            mint_name(&mut app, whoami.clone(), USER2, &root_token_id).unwrap();
+
+            let path = root_token_id.clone();
+
+            mint_path_native(&mut app, paths, USER, &path, vec![]).unwrap();
+        }
+
+        #[test]
+        #[should_panic(expected = "For the path exists root token with same name")]
+        fn test_mint_path_existing_root_pay_cw20() {
+            let mut app = mock_app();
+            let cw20_addr = instantiate_cw20(&mut app);
+            let (whoami, paths, _token_id) = setup_test_case_with_name(
+                &mut app,
+                Some(PaymentDetails::Cw20 {
+                    token_address: cw20_addr.to_string(),
+                    amount: Uint128::new(100),
+                }),
+                Some(2),
+            );
+
+            // Mint the name
+            let root_token_id = "another_root".to_string();
+            mint_name(&mut app, whoami.clone(), USER2, &root_token_id).unwrap();
+
+            let path = root_token_id.clone();
+
+            mint_path_cw20(&mut app, cw20_addr, paths, USER, Uint128::new(100), &path).unwrap();
+        }
+
+        #[test]
+        fn test_mint_path_existing_root_owner_no_payment() {
+            let mut app = mock_app();
+            let (whoami, paths, token_id) = setup_test_case_with_name(&mut app, None, Some(2));
+
+            // Mint the name
+            let root_token_id = "another_root".to_string();
+            mint_name(&mut app, whoami.clone(), USER, &root_token_id).unwrap();
+
+            let path = root_token_id.clone();
+
+            mint_path_native(&mut app, paths, USER, &path, vec![]).unwrap();
+
+            let resp = get_nft_owner(&mut app, whoami, format!("{}::{}", token_id, path));
+            assert_eq!(resp.owner, USER.to_string());
+        }
+
+        #[test]
+        #[should_panic(expected = "This message does no accept funds")]
+        fn test_mint_path_pay_native() {
+            let mut app = mock_app();
+            let (whoami, paths, _token_id) = setup_test_case_with_name(
+                &mut app,
+                Some(PaymentDetails::Native {
+                    denom: NATIVE_DENOM.to_string(),
+                    amount: Uint128::new(100),
+                }),
+                Some(2),
+            );
+
+            // Mint the name
+            let root_token_id = "another_root".to_string();
+            mint_name(&mut app, whoami.clone(), USER, &root_token_id).unwrap();
+
+            let path = root_token_id.clone();
+
+            mint_path_native(&mut app, paths, USER, &path, coins(100, NATIVE_DENOM)).unwrap();
+        }
+
+        #[test]
+        #[should_panic(expected = "No payment is needed to mint a path")]
+        fn test_mint_path_pay_cw20() {
+            let mut app = mock_app();
+            let cw20_addr = instantiate_cw20(&mut app);
+            let (whoami, paths, _token_id) = setup_test_case_with_name(
+                &mut app,
+                Some(PaymentDetails::Cw20 {
+                    token_address: cw20_addr.to_string(),
+                    amount: Uint128::new(100),
+                }),
+                Some(2),
+            );
+
+            // Mint the name
+            let root_token_id = "another_root".to_string();
+            mint_name(&mut app, whoami.clone(), USER, &root_token_id).unwrap();
+
+            let path = root_token_id.clone();
+
+            mint_path_cw20(&mut app, cw20_addr, paths, USER, Uint128::new(100), &path).unwrap();
         }
     }
 }

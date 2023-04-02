@@ -7,7 +7,10 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg, TokenInfoResponse};
 use cw721::{Cw721QueryMsg, Cw721ReceiveMsg, OwnerOfResponse};
+use cw_storage_plus::Item;
 use cw_utils::{must_pay, nonpayable};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::error::ContractError;
 use crate::msg::{
@@ -100,7 +103,7 @@ fn is_in_claim_window(
     current_height: u64,
 ) -> bool {
     match path_root_claim_window {
-        Some(w) => init_height + u64::from(w) < current_height,
+        Some(w) => init_height + u64::from(w) > current_height,
         None => false,
     }
 }
@@ -223,15 +226,17 @@ pub fn execute_receive_cw20(
         ReceiveMsg::MintPath { path } => path,
     };
 
-    let path_as_base_owner =
-        get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
+    let is_in_claim_window_ = is_in_claim_window(
+        config.path_root_claim_blocks,
+        config.initial_height,
+        env.block.height,
+    );
 
-    if let Some(path_as_base_owner) = path_as_base_owner {
-        if is_in_claim_window(
-            config.path_root_claim_blocks,
-            config.initial_height,
-            env.block.height,
-        ) {
+    if is_in_claim_window_ {
+        let path_as_base_owner =
+            get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
+
+        if let Some(path_as_base_owner) = path_as_base_owner {
             if cw20_receive.sender == path_as_base_owner {
                 return Err(ContractError::NoPaymentNeeded {});
             } else {
@@ -308,16 +313,18 @@ pub fn execute_mint_path(
     }
     let token_id = config.token_id.unwrap();
 
-    let path_as_base_owner =
-        get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
+    let is_in_claim_window_ = is_in_claim_window(
+        config.path_root_claim_blocks,
+        config.initial_height,
+        env.block.height,
+    );
 
-    if let Some(path_as_base_owner) = path_as_base_owner {
-        if is_in_claim_window(
-            config.path_root_claim_blocks,
-            config.initial_height,
-            env.block.height,
-        ) {
-            if info.sender.to_string() != path_as_base_owner {
+    if is_in_claim_window_ {
+        let path_as_base_owner =
+            get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
+
+        if let Some(path_as_base_owner) = path_as_base_owner {
+            if info.sender.to_string() == path_as_base_owner {
                 payment_details = None
             } else {
                 return Err(ContractError::RootInClaimWindowToken {});
@@ -537,14 +544,27 @@ pub fn query_claim_info(deps: Deps, env: Env, path: String) -> StdResult<Binary>
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+    #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+    pub struct ConfigV100 {
+        pub whoami_address: String,
+        pub admin: Addr,
+        pub token_id: Option<String>,
+    }
+
+    const CONFIG_V100: Item<ConfigV100> = Item::new("config");
+    let config_v100 = CONFIG_V100.load(deps.storage)?;
+
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let config = CONFIG.update(deps.storage, |mut config| -> Result<_, ContractError> {
-        config.initial_height = env.block.height;
-        config.path_root_claim_blocks = msg.path_root_claim_blocks;
+    let config = Config {
+        admin: config_v100.admin,
+        token_id: config_v100.token_id,
+        whoami_address: config_v100.whoami_address,
+        initial_height: env.block.height,
+        path_root_claim_blocks: msg.path_root_claim_blocks,
+    };
 
-        Ok(config)
-    })?;
+    CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new()
         .add_attribute("action", "migrate")
