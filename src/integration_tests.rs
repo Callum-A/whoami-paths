@@ -1180,6 +1180,23 @@ mod tests {
         }
 
         #[test]
+        fn test_mint_path_existing_root_owner_claim_window_passed() {
+            let mut app = mock_app();
+            let (whoami, paths, token_id) = setup_test_case_with_name(&mut app, None, Some(1));
+
+            // Mint the name
+            let root_token_id = "another_root".to_string();
+            mint_name(&mut app, whoami.clone(), USER, &root_token_id).unwrap();
+
+            let path = root_token_id.clone();
+
+            mint_path_native(&mut app, paths, USER2, &path, vec![]).unwrap();
+
+            let resp = get_nft_owner(&mut app, whoami, format!("{}::{}", token_id, path));
+            assert_eq!(resp.owner, USER2.to_string());
+        }
+
+        #[test]
         #[should_panic(expected = "This message does no accept funds")]
         fn test_mint_path_pay_native() {
             let mut app = mock_app();
@@ -1222,6 +1239,30 @@ mod tests {
             let path = root_token_id.clone();
 
             mint_path_cw20(&mut app, cw20_addr, paths, USER, Uint128::new(100), &path).unwrap();
+        }
+
+        #[test]
+        fn test_mint_path_pay_cw20_passed_claim_window() {
+            let mut app = mock_app();
+            let cw20_addr = instantiate_cw20(&mut app);
+            let (whoami, paths, token_id) = setup_test_case_with_name(
+                &mut app,
+                Some(PaymentDetails::Cw20 {
+                    token_address: cw20_addr.to_string(),
+                    amount: Uint128::new(100),
+                }),
+                Some(1),
+            );
+
+            // Mint the name
+            let root_token_id = "another_root".to_string();
+            mint_name(&mut app, whoami.clone(), USER, &root_token_id).unwrap();
+
+            let path = root_token_id.clone();
+
+            mint_path_cw20(&mut app, cw20_addr, paths, USER, Uint128::new(100), &path).unwrap();
+            let resp = get_nft_owner(&mut app, whoami, format!("{}::{}", token_id, path));
+            assert_eq!(resp.owner, USER.to_string());
         }
     }
 }
